@@ -28,7 +28,7 @@ except ImportError:
         else:
             return 1
 
-from zss.simple_tree import Node
+from simple_tree import Node
 
 
 class AnnotatedTree(object):
@@ -157,7 +157,9 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
     :return: An integer distance [0, inf+)
     '''
     A, B = AnnotatedTree(A, get_children), AnnotatedTree(B, get_children)
-    treedists = zeros((len(A.nodes), len(B.nodes)), int)
+    treedists = zeros((len(A.nodes), len(B.nodes)))
+
+    KeyrootMaps = {}
 
     def treedist(i, j):
         Al = A.lmds
@@ -167,7 +169,7 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
 
         m = i - Al[i] + 2
         n = j - Bl[j] + 2
-        fd = zeros((m,n), int)
+        fd = zeros((m,n))
 
         ioff = Al[i] - 1
         joff = Bl[j] - 1
@@ -208,9 +210,10 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
                         fd[x][y-1] + insert_cost(Bn[y+joff]),
                         fd[p][q] + treedists[x+ioff][y+joff]
                     )
+        KeyrootMaps[(i, j)] = fd
 
     for i in A.keyroots:
         for j in B.keyroots:
             treedist(i,j)
 
-    return treedists[-1][-1]
+    return (KeyrootMaps, treedists)
