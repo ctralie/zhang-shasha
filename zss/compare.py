@@ -158,8 +158,10 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
     '''
     A, B = AnnotatedTree(A, get_children), AnnotatedTree(B, get_children)
     treedists = zeros((len(A.nodes), len(B.nodes)))
+    treeptrs = [[None]*len(B.nodes) for i in range(len(A.nodes))]
 
     KeyrootMaps = {}
+    KeyrootPtrs = {}
 
     def treedist(i, j):
         Al = A.lmds
@@ -170,31 +172,44 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
         m = i - Al[i] + 2
         n = j - Bl[j] + 2
         fd = zeros((m,n))
+        ptrs = [[None]*n for k in range(m)]
 
         ioff = Al[i] - 1
         joff = Bl[j] - 1
 
+        #Backpointers will be lists of [(i, j), (backi, backj), (NodeA, NodeB)]
+
         for x in range(1, m): # δ(l(i1)..i, θ) = δ(l(1i)..1-1, θ) + γ(v → λ)
             fd[x][0] = fd[x-1][0] + remove_cost(An[x+ioff])
+            ptrs[x][0] = [ [(i, j), (x-1, 0), (An[x+ioff], None)] ]
         for y in range(1, n): # δ(θ, l(j1)..j) = δ(θ, l(j1)..j-1) + γ(λ → w)
             fd[0][y] = fd[0][y-1] + insert_cost(Bn[y+joff])
+            ptrs[0][y] = [ [(i, j), (0, y-1), (None, Bn[y+joff])] ]
 
         for x in range(1, m): ## the plus one is for the xrange impl
             for y in range(1, n):
                 # only need to check if x is an ancestor of i
                 # and y is an ancestor of j
+                remA = remove_cost(An[x+ioff])
+                insB = insert_cost(Bn[y+joff])
                 if Al[i] == Al[x+ioff] and Bl[j] == Bl[y+joff]:
                     #                   +-
                     #                   | δ(l(i1)..i-1, l(j1)..j) + γ(v → λ)
                     # δ(F1 , F2 ) = min-+ δ(l(i1)..i , l(j1)..j-1) + γ(λ → w)
                     #                   | δ(l(i1)..i-1, l(j1)..j-1) + γ(v → w)
                     #                   +-
-                    fd[x][y] = min(
-                        fd[x-1][y] + remove_cost(An[x+ioff]),
-                        fd[x][y-1] + insert_cost(Bn[y+joff]),
-                        fd[x-1][y-1] + update_cost(An[x+ioff], Bn[y+joff]),
-                    )
+                    swapAB = update_cost(An[x+ioff], Bn[y+joff])
+                    costs = [fd[x-1][y] + remA, fd[x][y-1] + insB, fd[x-1][y-1] + swapAB]
+                    idx = np.argmin(np.array(costs))
+                    if idx == 0:
+                        ptrs[x][y] = [ [(i, j), (x-1, y), (An[x+ioff], None)] ]
+                    elif idx == 1:
+                        ptrs[x][y] = [ [(i, j), (x, y-1), (None, Bn[y+joff])] ]
+                    elif idx == 2:
+                        ptrs[x][y] = [ [(i, j), (x-1, y-1), (An[x+ioff], Bn[y+joff])] ]
+                    fd[x][y] = costs[idx]
                     treedists[x+ioff][y+joff] = fd[x][y]
+                    treeptrs[x+ioff][y+joff] = ptrs[x][y]
                 else:
                     #                   +-
                     #                   | δ(l(i1)..i-1, l(j1)..j) + γ(v → λ)
@@ -205,15 +220,50 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
                     p = Al[x+ioff]-1-ioff
                     q = Bl[y+joff]-1-joff
                     #print (p, q), (len(fd), len(fd[0]))
-                    fd[x][y] = min(
-                        fd[x-1][y] + remove_cost(An[x+ioff]),
-                        fd[x][y-1] + insert_cost(Bn[y+joff]),
-                        fd[p][q] + treedists[x+ioff][y+joff]
-                    )
+                    costs = [fd[x-1][y] + remA, fd[x][y-1] + insB, fd[p][q] + treedists[x+ioff][y+joff]]
+                    idx = np.argmin(np.array(costs))
+                    if idx == 0:
+                        ptrs[x][y] = [ [(i, j), (x-1, y), (An[x+ioff], None)] ]
+                    elif idx == 1:
+                        ptrs[x][y] = [ [(i, j), (x, y-1), (None, Bn[y+joff])] ]
+                    elif idx == 2:
+                        ptrs[x][y] = [[(i, j), [p, q], (None, None)], [(-1, -1), [x+ioff, y+joff], (None, None)]] #Branches off in two directions
+                    fd[x][y] = costs[idx]
         KeyrootMaps[(i, j)] = fd
+        KeyrootPtrs[(i, j)] = ptrs
 
     for i in A.keyroots:
         for j in B.keyroots:
             treedist(i,j)
 
-    return (KeyrootMaps, treedists)
+    KeyrootMaps[(-1, -1)] = treedists
+    KeyrootPtrs[(-1, -1)] = treeptrs
+
+    return (KeyrootMaps, KeyrootPtrs, treedists)
+
+def zssBacktraceRec(KeyrootPtrs, currPtr, Map, BsNotHit):
+    if not currPtr:
+        return
+    if len(currPtr) == 2:
+        for k in range(2): #Branching off in two directions for a forest dist
+            if currPtr[k]:
+                [kr, idx, _] = currPtr[k]
+                zssBacktraceRec(KeyrootPtrs, KeyrootPtrs[kr][idx[0]][idx[1]], Map, BsNotHit)
+    elif len(currPtr) == 1:
+        [kr, idx, m] = currPtr[0]
+        #This operation is part of the optimal map, so record it
+        if m[0] and m[1]:
+            Map[m[0]] = m[1]
+        elif m[0] and not m[1]:
+            Map[m[0]] = None
+        elif not m[0] and m[1]:
+            BsNotHit.append(m[1])
+        zssBacktraceRec(KeyrootPtrs, KeyrootPtrs[kr][idx[0]][idx[1]], Map, BsNotHit)
+    else:
+        print "Error: %i branches in recursion"%len(currPtr)
+
+def zssBacktrace(KeyrootPtrs):
+    Map = {}
+    BsNotHit = []
+    zssBacktraceRec(KeyrootPtrs, KeyrootPtrs[(-1, -1)][-1][-1], Map, BsNotHit)
+    return (Map, BsNotHit)
