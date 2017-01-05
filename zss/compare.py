@@ -28,7 +28,7 @@ except ImportError:
         else:
             return 1
 
-from simple_tree import Node
+from zss.simple_tree import Node
 
 
 class AnnotatedTree(object):
@@ -160,7 +160,6 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
     treedists = zeros((len(A.nodes), len(B.nodes)))
     treeptrs = [[None]*len(B.nodes) for i in range(len(A.nodes))]
 
-    KeyrootMaps = {}
     KeyrootPtrs = {}
 
     def treedist(i, j):
@@ -219,7 +218,6 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
                     #                   +-
                     p = Al[x+ioff]-1-ioff
                     q = Bl[y+joff]-1-joff
-                    #print (p, q), (len(fd), len(fd[0]))
                     costs = [fd[x-1][y] + remA, fd[x][y-1] + insB, fd[p][q] + treedists[x+ioff][y+joff]]
                     idx = np.argmin(np.array(costs))
                     if idx == 0:
@@ -229,14 +227,12 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
                     elif idx == 2:
                         ptrs[x][y] = [[(i, j), [p, q], (None, None)], [(-1, -1), [x+ioff, y+joff], (None, None)]] #Branches off in two directions
                     fd[x][y] = costs[idx]
-        KeyrootMaps[(i, j)] = fd
         KeyrootPtrs[(i, j)] = ptrs
 
     for i in A.keyroots:
         for j in B.keyroots:
             treedist(i,j)
 
-    KeyrootMaps[(-1, -1)] = treedists
     KeyrootPtrs[(-1, -1)] = treeptrs
 
     return (KeyrootMaps, KeyrootPtrs, treedists)
@@ -260,7 +256,7 @@ def zssBacktraceRec(KeyrootPtrs, currPtr, Map, BsNotHit):
             BsNotHit.append(m[1])
         zssBacktraceRec(KeyrootPtrs, KeyrootPtrs[kr][idx[0]][idx[1]], Map, BsNotHit)
     else:
-        print "Error: %i branches in recursion"%len(currPtr)
+        print("Error: %i branches in recursion"%len(currPtr))
 
 def zssBacktrace(KeyrootPtrs):
     Map = {}
