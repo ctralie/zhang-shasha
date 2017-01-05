@@ -125,7 +125,7 @@ def simple_distance(A, B, get_children=Node.get_children,
     )
 
 
-def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
+def distance(A, B, get_children, insert_cost, remove_cost, update_cost, store_pointers = False):
     '''Computes the exact tree edit distance between trees A and B with a
     richer API than :py:func:`zss.simple_distance`.
 
@@ -154,13 +154,19 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
     :param update_cost:
         A function ``update_cost(a, b) == cost to change a into b >= 0``.
 
-    :return: An integer distance [0, inf+)
+    :param store_pointers:
+        A boolean value for whether or not pointers should be stored for
+        backtracing to get the optimal map between trees.  Defaults to False
+
+    :return: An integer distance [0, inf+) if backpointers are not stored, or
+        a tuple (distance, dictionary BackPointers: (i, j) -> array) if
+        backpointers were stored
     '''
     A, B = AnnotatedTree(A, get_children), AnnotatedTree(B, get_children)
     treedists = zeros((len(A.nodes), len(B.nodes)))
-    treeptrs = [[None]*len(B.nodes) for i in range(len(A.nodes))]
-
-    KeyrootPtrs = {}
+    if store_pointers:
+        treeptrs = [[None]*len(B.nodes) for i in range(len(A.nodes))]
+        KeyrootPtrs = {}
 
     def treedist(i, j):
         Al = A.lmds
@@ -180,10 +186,12 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
 
         for x in range(1, m): # δ(l(i1)..i, θ) = δ(l(1i)..1-1, θ) + γ(v → λ)
             fd[x][0] = fd[x-1][0] + remove_cost(An[x+ioff])
-            ptrs[x][0] = [ [(i, j), (x-1, 0), (An[x+ioff], None)] ]
+            if store_pointers:
+                ptrs[x][0] = [ [(i, j), (x-1, 0), (An[x+ioff], None)] ]
         for y in range(1, n): # δ(θ, l(j1)..j) = δ(θ, l(j1)..j-1) + γ(λ → w)
             fd[0][y] = fd[0][y-1] + insert_cost(Bn[y+joff])
-            ptrs[0][y] = [ [(i, j), (0, y-1), (None, Bn[y+joff])] ]
+            if store_pointers:
+                ptrs[0][y] = [ [(i, j), (0, y-1), (None, Bn[y+joff])] ]
 
         for x in range(1, m): ## the plus one is for the xrange impl
             for y in range(1, n):
@@ -200,15 +208,17 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
                     swapAB = update_cost(An[x+ioff], Bn[y+joff])
                     costs = [fd[x-1][y] + remA, fd[x][y-1] + insB, fd[x-1][y-1] + swapAB]
                     idx = np.argmin(np.array(costs))
-                    if idx == 0:
-                        ptrs[x][y] = [ [(i, j), (x-1, y), (An[x+ioff], None)] ]
-                    elif idx == 1:
-                        ptrs[x][y] = [ [(i, j), (x, y-1), (None, Bn[y+joff])] ]
-                    elif idx == 2:
-                        ptrs[x][y] = [ [(i, j), (x-1, y-1), (An[x+ioff], Bn[y+joff])] ]
+                    if store_pointers:
+                        if idx == 0:
+                            ptrs[x][y] = [ [(i, j), (x-1, y), (An[x+ioff], None)] ]
+                        elif idx == 1:
+                            ptrs[x][y] = [ [(i, j), (x, y-1), (None, Bn[y+joff])] ]
+                        elif idx == 2:
+                            ptrs[x][y] = [ [(i, j), (x-1, y-1), (An[x+ioff], Bn[y+joff])] ]
                     fd[x][y] = costs[idx]
                     treedists[x+ioff][y+joff] = fd[x][y]
-                    treeptrs[x+ioff][y+joff] = ptrs[x][y]
+                    if store_pointers:
+                        treeptrs[x+ioff][y+joff] = ptrs[x][y]
                 else:
                     #                   +-
                     #                   | δ(l(i1)..i-1, l(j1)..j) + γ(v → λ)
@@ -220,22 +230,27 @@ def distance(A, B, get_children, insert_cost, remove_cost, update_cost):
                     q = Bl[y+joff]-1-joff
                     costs = [fd[x-1][y] + remA, fd[x][y-1] + insB, fd[p][q] + treedists[x+ioff][y+joff]]
                     idx = np.argmin(np.array(costs))
-                    if idx == 0:
-                        ptrs[x][y] = [ [(i, j), (x-1, y), (An[x+ioff], None)] ]
-                    elif idx == 1:
-                        ptrs[x][y] = [ [(i, j), (x, y-1), (None, Bn[y+joff])] ]
-                    elif idx == 2:
-                        ptrs[x][y] = [[(i, j), [p, q], (None, None)], [(-1, -1), [x+ioff, y+joff], (None, None)]] #Branches off in two directions
+                    if store_pointers:
+                        if idx == 0:
+                            ptrs[x][y] = [ [(i, j), (x-1, y), (An[x+ioff], None)] ]
+                        elif idx == 1:
+                            ptrs[x][y] = [ [(i, j), (x, y-1), (None, Bn[y+joff])] ]
+                        elif idx == 2:
+                            ptrs[x][y] = [[(i, j), [p, q], (None, None)], [(-1, -1), [x+ioff, y+joff], (None, None)]] #Branches off in two directions
                     fd[x][y] = costs[idx]
-        KeyrootPtrs[(i, j)] = ptrs
+        if store_pointers:
+            KeyrootPtrs[(i, j)] = ptrs
 
     for i in A.keyroots:
         for j in B.keyroots:
             treedist(i,j)
+    if store_pointers:
+        KeyrootPtrs[(-1, -1)] = treeptrs
 
-    KeyrootPtrs[(-1, -1)] = treeptrs
-
-    return (KeyrootMaps, KeyrootPtrs, treedists)
+    if store_pointers:
+        return (treedists[-1, -1], KeyrootPtrs)
+    else:
+        return treedists[-1, -1]
 
 def zssBacktraceRec(KeyrootPtrs, currPtr, Map, BsNotHit):
     if not currPtr:
