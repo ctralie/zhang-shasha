@@ -76,11 +76,11 @@ class Node(object):
             return sum(b in c for c in self.children)
         raise TypeError("Object %s is not of type str or Node" % repr(b))
 
-    def __eq__(self, b):
-        if b is None: return False
-        if not isinstance(b, Node):
-            raise TypeError("Must compare against type Node")
-        return self.label == b.label
+    # def __eq__(self, b):
+    #     if b is None: return False
+    #     if not isinstance(b, Node):
+    #         raise TypeError("Must compare against type Node")
+    #     return self.label == b.label
 
     def __ne__(self, b):
         return not self.__eq__(b)
